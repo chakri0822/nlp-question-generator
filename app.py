@@ -13,7 +13,14 @@ from xml.sax.saxutils import escape
 # ---------------- SETUP ---------------- #
 st.set_page_config(page_title="NLP Question Generator", layout="wide")
 
-nlp = spacy.load("en_core_web_sm")
+import spacy
+import subprocess
+
+try:
+    nlp = spacy.load("en_core_web_sm")
+except:
+    subprocess.run(["python", "-m", "spacy", "download", "en_core_web_sm"])
+    nlp = spacy.load("en_core_web_sm")
 
 try:
     nltk.data.find('tokenizers/punkt')
