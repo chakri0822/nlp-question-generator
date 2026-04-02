@@ -13,19 +13,22 @@ from xml.sax.saxutils import escape
 # ---------------- SETUP ---------------- #
 st.set_page_config(page_title="NLP Question Generator", layout="wide")
 
-import spacy
-import subprocess
+# ----------- LOAD SPACY ----------- #
+@st.cache_resource
+def load_spacy():
+    return spacy.load("en_core_web_sm")
 
-try:
-    nlp = spacy.load("en_core_web_sm")
-except:
-    subprocess.run(["python", "-m", "spacy", "download", "en_core_web_sm"])
-    nlp = spacy.load("en_core_web_sm")
-try:
-    nltk.data.find('tokenizers/punkt')
-except:
-    nltk.download('punkt')
-    nltk.download('punkt_tab')
+nlp = load_spacy()
+
+# ----------- LOAD NLTK ----------- #
+@st.cache_resource
+def load_nltk():
+    try:
+        nltk.data.find('tokenizers/punkt')
+    except:
+        nltk.download('punkt')
+
+load_nltk()
 
 # ---------------- STYLE ---------------- #
 st.markdown("""
@@ -48,23 +51,28 @@ def extract_text(files):
                 if page.extract_text():
                     text += page.extract_text()
         else:
-            text += file.read().decode("utf-8")
+            text += file.read().decode("utf-8", errors="ignore")
     return text
 
+
 def extract_topics(text):
+    if not text.strip():
+        return []
     vectorizer = TfidfVectorizer(stop_words='english', max_features=20)
     X = vectorizer.fit_transform([text])
     return vectorizer.get_feature_names_out()
 
+
 def clean_text(text):
     return text.replace("•", "").replace("\n", " ")
+
 
 # ---------------- SESSION STATE ---------------- #
 if "text" not in st.session_state:
     st.session_state.text = ""
 
 # ---------------- SIDEBAR ---------------- #
-st.sidebar.title("⚡ NLP AI System")
+st.sidebar.title("NLP AI System")
 
 files = st.sidebar.file_uploader("Upload Modules", accept_multiple_files=True)
 
@@ -73,18 +81,18 @@ if files:
     st.sidebar.success("Files Loaded!")
 
 page = st.sidebar.radio("Navigate", [
-    "📄 Generator",
-    "🧠 Topics",
-    "📊 Gap Analyzer",
-    "✍️ Improver",
-    "🔍 Type Detector",
-    "🏆 Ranker",
-    "📈 Insights"
+    "Generator",
+    "Topics",
+    "Gap Analyzer",
+    "Improver",
+    "Type Detector",
+    "Ranker",
+    "Insights"
 ])
 
 # ---------------- GENERATOR ---------------- #
-if page == "📄 Generator":
-    st.title("📄 Question Generator")
+if page == "Generator":
+    st.title("Question Generator")
 
     num_q = st.slider("Number of Questions", 5, 20, 5)
     marks = st.selectbox("Marks per Question", [2, 5, 10])
@@ -95,37 +103,55 @@ if page == "📄 Generator":
         text = st.session_state.text
 
         if not text.strip():
-        st.error("Upload valid files first!")
-        else:
-            sentences = sent_tokenize(text)
-            if len(sentences) == 0:
-    st.error("Not enough content to generate questions!")
-    st.stop()
+            st.error("Upload valid files first!")
+            st.stop()
 
-selected = random.sample(sentences, min(num_q, len(sentences)))
+        sentences = sent_tokenize(text)
 
-            questions = []
+        if len(sentences) == 0:
+            st.error("Not enough content!")
+            st.stop()
 
-            for i, s in enumerate(selected):
-                s = clean_text(s)
+        selected = random.sample(sentences, min(num_q, len(sentences)))
 
-                # -------- DESCRIPTIVE -------- #
-                if q_type == "Descriptive":
-                    if marks == 2:
-                        q = f"Q{i+1}. Define: {s} ({marks} Marks)"
-                    elif marks == 5:
-                        q = f"Q{i+1}. Explain briefly: {s} ({marks} Marks)"
-                    else:
-                        q = f"Q{i+1}. Analyze in detail: {s} ({marks} Marks)"
+        questions = []
 
-                # -------- MCQ -------- #
-                elif q_type == "MCQ":
+        for i, s in enumerate(selected):
+            s = clean_text(s)
+
+            if q_type == "Descriptive":
+                if marks == 2:
+                    q = f"Q{i+1}. Define: {s} ({marks} Marks)"
+                elif marks == 5:
+                    q = f"Q{i+1}. Explain briefly: {s} ({marks} Marks)"
+                else:
+                    q = f"Q{i+1}. Analyze in detail: {s} ({marks} Marks)"
+
+            elif q_type == "MCQ":
+                words = s.split()
+                correct = words[0] if len(words) > 2 else "NLP"
+
+                options = list(set(words[:4]))
+                while len(options) < 4:
+                    options.append(f"Option{len(options)}")
+
+                random.shuffle(options)
+
+                q = f"Q{i+1}. What is related to: {s}\n"
+                for idx, opt in enumerate(options):
+                    q += f"{chr(65+idx)}) {opt}\n"
+                q += f"Answer: {correct}"
+
+            else:
+                if i % 2 == 0:
+                    q = f"Q{i+1}. Explain: {s} ({marks} Marks)"
+                else:
                     words = s.split()
-                    correct = words[0] if len(words) > 2 else "NLP"
+                    correct = words[0] if words else "NLP"
 
                     options = list(set(words[:4]))
                     while len(options) < 4:
-                        options.append("Option" + str(len(options)))
+                        options.append(f"Option{len(options)}")
 
                     random.shuffle(options)
 
@@ -134,85 +160,54 @@ selected = random.sample(sentences, min(num_q, len(sentences)))
                         q += f"{chr(65+idx)}) {opt}\n"
                     q += f"Answer: {correct}"
 
-                # -------- MIXED -------- #
-                else:
-                    if i % 2 == 0:
-                        q = f"Q{i+1}. Explain: {s} ({marks} Marks)"
-                    else:
-                        words = s.split()
-                        correct = words[0] if words else "NLP"
+            questions.append(q)
 
-                        options = list(set(words[:4]))
-                        while len(options) < 4:
-                            options.append("Option" + str(len(options)))
+        st.subheader("Generated Questions")
+        for q in questions:
+            st.write(q)
 
-                        random.shuffle(options)
+        # -------- PDF -------- #
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer)
+        styles = getSampleStyleSheet()
 
-                        q = f"Q{i+1}. What is related to: {s}\n"
-                        for idx, opt in enumerate(options):
-                            q += f"{chr(65+idx)}) {opt}\n"
-                        q += f"Answer: {correct}"
+        content = []
+        content.append(Paragraph("NLP Question Paper", styles['Title']))
+        content.append(Spacer(1, 20))
 
-                questions.append(q)
+        for q in questions:
+            safe_q = escape(q)
+            content.append(Paragraph(safe_q, styles['Normal']))
+            content.append(Spacer(1, 10))
 
-            # DISPLAY
-            st.subheader("Generated Questions")
-            for q in questions:
-                st.write(q)
+        doc.build(content)
+        buffer.seek(0)
 
-            # -------- PDF GENERATION -------- #
-            buffer = io.BytesIO()
-            doc = SimpleDocTemplate(buffer)
-            styles = getSampleStyleSheet()
+        st.download_button("Download PDF", buffer, "question_paper.pdf")
 
-            content = []
-            content.append(Paragraph("NLP Question Paper", styles['Title']))
-            content.append(Spacer(1, 20))
-
-            for q in questions:
-                safe_q = escape(q)
-                content.append(Paragraph(safe_q, styles['Normal']))
-                content.append(Spacer(1, 10))
-
-            doc.build(content)
-            buffer.seek(0)
-
-            st.download_button("📥 Download PDF", buffer, "question_paper.pdf")
-
-# ---------------- TOPICS ---------------- #
-elif page == "🧠 Topics":
-    st.title("🧠 Topic Extractor")
-
+# ---------------- OTHER PAGES ---------------- #
+elif page == "Topics":
+    st.title("Topic Extractor")
     if st.button("Extract Topics"):
-        topics = extract_topics(st.session_state.text)
-        st.write(topics)
+        st.write(extract_topics(st.session_state.text))
 
-# ---------------- GAP ANALYZER ---------------- #
-elif page == "📊 Gap Analyzer":
-    st.title("📊 Gap Analyzer")
-
+elif page == "Gap Analyzer":
+    st.title("Gap Analyzer")
     syllabus = st.text_area("Paste syllabus")
-
     if st.button("Analyze"):
         text = st.session_state.text
         missing = [w for w in syllabus.split() if w.lower() not in text.lower()]
         st.write("Missing Topics:", missing[:20])
 
-# ---------------- IMPROVER ---------------- #
-elif page == "✍️ Improver":
-    st.title("✍️ Question Improver")
-
+elif page == "Improver":
+    st.title("Question Improver")
     q = st.text_area("Enter question")
-
     if st.button("Improve"):
         st.write("Improved:", "Explain in detail: " + q)
 
-# ---------------- TYPE DETECTOR ---------------- #
-elif page == "🔍 Type Detector":
-    st.title("🔍 Type Detector")
-
+elif page == "Type Detector":
+    st.title("Type Detector")
     q = st.text_area("Enter question")
-
     if st.button("Detect"):
         if "define" in q.lower():
             st.write("Definition")
@@ -221,21 +216,15 @@ elif page == "🔍 Type Detector":
         else:
             st.write("General")
 
-# ---------------- RANKER ---------------- #
-elif page == "🏆 Ranker":
-    st.title("🏆 Ranker")
-
+elif page == "Ranker":
+    st.title("Ranker")
     papers = st.text_area("Paste papers")
-
     if st.button("Rank"):
         st.write(sorted(papers.split("\n"), key=len, reverse=True))
 
-# ---------------- INSIGHTS ---------------- #
-elif page == "📈 Insights":
-    st.title("📈 Insights")
-
+elif page == "Insights":
+    st.title("Insights")
     words = st.session_state.text.split()
-
     if st.button("Show Insights"):
         st.write("Total Words:", len(words))
         st.write("Unique Words:", len(set(words)))
