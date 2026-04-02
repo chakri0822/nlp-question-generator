@@ -21,7 +21,6 @@ try:
 except:
     subprocess.run(["python", "-m", "spacy", "download", "en_core_web_sm"])
     nlp = spacy.load("en_core_web_sm")
-
 try:
     nltk.data.find('tokenizers/punkt')
 except:
@@ -95,11 +94,15 @@ if page == "📄 Generator":
 
         text = st.session_state.text
 
-        if not text:
-            st.error("Upload files first!")
+        if not text.strip():
+        st.error("Upload valid files first!")
         else:
             sentences = sent_tokenize(text)
-            selected = random.sample(sentences, min(num_q, len(sentences)))
+            if len(sentences) == 0:
+    st.error("Not enough content to generate questions!")
+    st.stop()
+
+selected = random.sample(sentences, min(num_q, len(sentences)))
 
             questions = []
 
@@ -118,7 +121,7 @@ if page == "📄 Generator":
                 # -------- MCQ -------- #
                 elif q_type == "MCQ":
                     words = s.split()
-                    correct = words[0] if words else "NLP"
+                    correct = words[0] if len(words) > 2 else "NLP"
 
                     options = list(set(words[:4]))
                     while len(options) < 4:
